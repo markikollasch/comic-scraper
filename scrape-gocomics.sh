@@ -3,7 +3,7 @@
 # GoComics scraper 1.0
 
 # Confirm installation of prerequisites
-declare -a PREREQUISITES=( date curl hxselect hxpipe head cut rev )
+declare -a PREREQUISITES=( date curl jq xargs hxselect hxpipe head cut rev )
 for PREREQUISITE in ${PREREQUISITES[@]}
 do
     which "$PREREQUISITE" > /dev/null 2> /dev/null
@@ -15,8 +15,8 @@ do
 done
 
 # Parse arguments
-if [[ -z $1 ]] || [[ -z $2 ]]; then
-    echo "Usage: $0 comic-name start-date (end-date)"
+if [[ -z $1 ]] || [[ -z $2 ]] || [[ -z $3 ]]; then
+    echo "Usage: $0 comic-name start-date end-date"
     exit 0
 fi
 
@@ -29,15 +29,11 @@ if [[ $DATE_EXIT_CODE != 0 ]]; then
     exit 1
 fi
 
-if [[ -z $3 ]]; then
-    END_DATE=$START_DATE
-else
-    END_DATE=$(date -d $3 -I 2> /dev/null)
-    DATE_EXIT_CODE=$?
-    if [[ $DATE_EXIT_CODE != 0 ]]; then
-        echo "Invalid end date: $3"
-        exit 1
-    fi
+END_DATE=$(date -d $3 -I 2> /dev/null)
+DATE_EXIT_CODE=$?
+if [[ $DATE_EXIT_CODE != 0 ]]; then
+    echo "Invalid end date: $3"
+    exit 1
 fi
 
 # Ensure start date is not after end date
@@ -50,15 +46,19 @@ if [[ $END_TIMESTAMP -lt $START_TIMESTAMP ]]; then
 fi
 
 # Print informative message
-if [[ $START_DATE = $END_DATE ]]; then
-    echo "Downloading $COMIC_NAME strip for $START_DATE"
-else
-    echo "Downloading $COMIC_NAME strips from $START_DATE to $END_DATE (inclusive)"
+echo "Finding available $COMIC_NAME strips from $START_DATE to $END_DATE (inclusive)"
+
+# Find available dates
+DATES=$(curl -fs "https://www.gocomics.com/api/service/v2/assets/feature-runs/$COMIC_NAME?dateAfter=$START_DATE&dateBefore=$END_DATE" -H 'User-Agent: Mozilla/5.0' | jq -r '.dates[]' | xargs -I % date -d % -I)
+
+CURL_EXIT_CODE=$?
+if [[ $CURL_EXIT_CODE != 0 ]]; then
+    echo "Error identifying available dates"
+    exit 1
 fi
 
 # Execute download
-CURRENT_DATE=$START_DATE
-while [[ ! $CURRENT_DATE > $END_DATE ]]; do
+for CURRENT_DATE in $DATES; do
     echo "Downloading $COMIC_NAME for $CURRENT_DATE...";
     YEAR=$(date +%Y -d "$CURRENT_DATE")
     MONTH=$(date +%m -d "$CURRENT_DATE")
